@@ -37,7 +37,7 @@ class mcmc:
 
 
         #Calculate likelyhood with params
-        likelyhood.append(self.likeFunc(param[0]))
+        likelyhood.append(self.likeFunc(self.data,param[0]))
 
         i = 0
         while i<self.N-1:
@@ -58,7 +58,7 @@ class mcmc:
                 testParams.append(param[i][j]+np.random.normal(0,jump_scale[j]))
 
             #Calc likelyhood
-            newLikelyhood = self.likeFunc(testParams)
+            newLikelyhood = self.likeFunc(self.data,testParams)
             if self.logLike:
                 #Loglikelyhood Function
                 logH = newLikelyhood-likelyhood[i]
