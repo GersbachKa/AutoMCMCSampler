@@ -14,12 +14,25 @@ class mcmc:
     def setDataset(self,data):
         self.data = data
 
+    def setBoundaries(self,paramBoundaries):
+        self.bounds = paramBoundaries
+
+    def getAcceptance(self):
+        try:
+            return self.acceptance
+        except:
+            return 0
+
     def start(self,iterations):
         self.N=iterations
         self._mcmc()
 
     def _mcmc(self):
-        #import pdb; pdb.set_trace()
+
+        try:
+            test = self.bounds
+        except:
+            self.bounds = None
 
         param = [] #[iteration][param]
         likelyhood = []
@@ -28,9 +41,13 @@ class mcmc:
         #Generate random starting points
         randStart = []
         randScale = []
-        for p in self.params:
-            randStart.append(np.random.random())
+        for i in range(0,len(self.params)):
             randScale.append(np.random.random())
+            if self.bounds == None:
+                randStart.append(np.random.random())
+            else:
+                randStart.append(np.random.uniform(self.bounds[i][0],self.bounds[i][1]))
+
 
         param.append(randStart)
         jump_scale = randScale
@@ -55,7 +72,14 @@ class mcmc:
             #Get new value
             testParams = []
             for j in range(0,len(self.params)):
-                testParams.append(param[i][j]+np.random.normal(0,jump_scale[j]))
+                next = None
+                if self.bounds == None:
+                    next = param[i][j]+np.random.normal(0,jump_scale[j])
+                else:
+                    while next==None or next<self.bounds[j][0] or next>self.bounds[j][1]:
+                        next = param[i][j]+np.random.normal(0,jump_scale[j])
+
+                testParams.append(next)
 
             #Calc likelyhood
             newLikelyhood = self.likeFunc(self.data,testParams)
@@ -85,9 +109,6 @@ class mcmc:
         self.paramChains = param
         self.likelyhoods = likelyhood
         self.acceptance = (accept/self.N)*100
-
-
-
 
     def _refine_jump_scale(self,percent,jump):
         if(percent < .45):
@@ -119,15 +140,32 @@ class mcmc:
             return False
 
     def showChains(self):
-        chains = np.swapaxes(self.paramChains,0,1)
-        for i in range(0,len(self.params)):
-            plt.plot(chains[i])
-            plt.title(self.params[i])
-            plt.show()
+        try:
+            chains = np.swapaxes(self.paramChains,0,1)
+            for i in range(0,len(self.params)):
+                plt.plot(chains[i])
+                plt.title(self.params[i])
+                plt.show()
+        except:
+            print("No chains found. Did you run \"start()\"?")
+            return None
 
     def showHistograms(self,bins=100,burn=.25):
-        chains = np.swapaxes(self.paramChains,0,1)
-        for i in range(0,len(self.params)):
-            plt.hist(chains[i][int(len(chains[i])*burn):],bins=100)
-            plt.title(self.params[i])
+        try:
+            chains = np.swapaxes(self.paramChains,0,1)
+            for i in range(0,len(self.params)):
+                plt.hist(chains[i][int(len(chains[i])*burn):],bins=100)
+                plt.title(self.params[i])
+                plt.show()
+        except:
+            print("No chains found. Did you run \"start()\"?")
+            return None
+
+    def showLikelyhoods(self):
+        try:
+            plt.plot(self.likelyhoods)
+            plt.title("Likelyhoods")
             plt.show()
+        except:
+            print("No chains found. Did you run \"start()\"?")
+            return None
