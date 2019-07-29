@@ -63,14 +63,8 @@ class mcmc:
         while i<self.N-1:
             #Progress Bar-------------------------------------------------------
             if i>300:
-                percentComplete = int((i/self.N)*100)
-                progressStr = ''
-                for p in range(10,110,10):
-                    if percentComplete >= p:
-                        progressStr+='#'
-                    else:
-                        progressStr+='-'
-                print('\rProgress: [{}],{}%'.format(progressStr,percentComplete),end='')
+                percentComplete = (int((i/self.N)*10000))/100
+                print('\rProgress: {}%'.format(percentComplete),end='')
             #refineJumpScale-------------------------------
             if i==300 and not self.jumpSet:
                 perc = accept/299
@@ -99,7 +93,7 @@ class mcmc:
             if self.logLike:
                 #Loglikelyhood Function
                 logH = newLikelyhood-likelyhood[i]
-                if(logH>0 or logH>=np.log(np.random.random())):
+                if(logH>0 or logH>=np.log(np.random.uniform(0,1))):
                     accept+=1
                     param.append(testParams)
                     likelyhood.append(newLikelyhood)
@@ -119,7 +113,7 @@ class mcmc:
                     likelyhood.append(likelyhood[i])
             i+=1
 
-        print("\rDone                      ")
+        print("\rDone              ")
         self.paramChains = param
         self.likelyhoods = likelyhood
         self.acceptance = (accept/self.N)*100
