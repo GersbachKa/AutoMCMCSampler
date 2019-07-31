@@ -11,6 +11,7 @@ class mcmc:
     def __init__(self):
         self.jumpSet = False
         self.boundsSet = False
+        self.tempSet = False
 
     def setLikelyhoodFunction(self,function,param_list,logLikely=True):
         self.likeFunc = function
@@ -22,19 +23,26 @@ class mcmc:
 
     def setJumpscale(self,scales):
         self.jumpSet = True
-        self.scale = scales
+        self.jumpScale = scales
 
     def setBoundaries(self,paramBoundaries):
         self.bounds = paramBoundaries
         self.boundsSet = True
 
-    def start(self,iterations):
-        self.N=iterations
-        self._mcmc()
+    def setTemperatures(self,temp_list):
+        self.tempSet = True
+        self.temps = temp_list
 
-#Actual mcmc--------------------------------------------------------------------
-    def _mcmc(self):
-        param = [] #[iteration][temp][param]
+    def start(self,iterations,parallel_tempering=False):
+        self.pt = parallel_tempering
+        if not parallel_tempering:
+            self._mcmc(iterations)
+        else:
+            self._ptmcmc(iterations)
+
+#Regular mcmc--------------------------------------------------------------------
+    def _mcmc(self,N):
+        param = [] #[iteration][param][temp]
         likelyhood = []
         accept = 0
 
@@ -46,25 +54,25 @@ class mcmc:
             #Boundaries are set
             randStart = []
             for par in range(len(self.params)):
-                randStart.append(np.random.uniform(self.bounds[0],self.bounds[1]))
+                randStart.append(np.random.uniform(self.bounds[par,0],self.bounds[par,1]))
             param.append(randStart)
 
 
         if not self.jumpSet:
             jump_scale = np.random.random(len(self.params))
         else:
-            jump_scale = self.scale
+            jump_scale = self.jumpScale
 
 
         #Calculate likelyhood with params
         likelyhood.append(self.likeFunc(self.data,param[0]))
 
         i = 0
-        while i<self.N-1:
-            #Progress Bar-------------------------------------------------------
-            if i>300:
-                percentComplete = (int((i/self.N)*10000))/100
-                print('\rProgress: {}%'.format(percentComplete),end='')
+        while i<N-1:
+            #Progress-------------------------------------------------------
+            if i>305:
+                percentComplete = (int((i/N)*10000))/100
+                print('\rProgress: {}%   '.format(percentComplete),end='')
             #refineJumpScale-------------------------------
             if i==300 and not self.jumpSet:
                 perc = accept/299
@@ -93,7 +101,7 @@ class mcmc:
             if self.logLike:
                 #Loglikelyhood Function
                 logH = newLikelyhood-likelyhood[i]
-                if(logH>0 or logH>=np.log(np.random.uniform(0,1))):
+                if(logH>=np.log(np.random.uniform(0,1))):
                     accept+=1
                     param.append(testParams)
                     likelyhood.append(newLikelyhood)
@@ -114,18 +122,108 @@ class mcmc:
             i+=1
 
         print("\rDone              ")
+        self.jumpScale = jump_scale
         self.paramChains = param
         self.likelyhoods = likelyhood
-        self.acceptance = (accept/self.N)*100
+        self.acceptance = (accept/N)*100
+
+#PTMCMC-------------------------------------------------------------------------
+    def _ptmcmc(self,N):
+        params = np.zeros((N,len(self.params),len(self.temps))) #[iteration,parameter,temp]
+        likelyhoods = np.zeros((N,len(self.temps))) #[iteration,temp]
+        jump_scale = []
+        acceptance = np.zeros(len(self.temps)) #[temp]
+        swapCount = 0
+
+        if not self.boundsSet:
+            #No boundaries
+            params[0] = np.random.random((len(self.params),len(self.temps)))
+        else:
+            #Boundaries are set
+            for par in range(len(self.params)):
+                params[0,par] = np.random.uniform(self.bounds[par,0],
+                                                  self.bounds[par,1],
+                                                  len(self.temps))
+
+        #Calculate likelyhood with params
+        for t in range(len(self.temps)):
+            likelyhoods[0,t] = -1*(-self.likeFunc(self.data,params[0,:,t]))**(1/self.temps[t])
+
+        if not self.jumpSet:
+            jump_scale = np.random.random(len(self.params))
+            self._mcmc(302) #Already implemented in code for Single chain.
+            jump_scale = self.jumpScale
+        else:
+            jump_scale = self.scale
+
+        i = 0
+        while i < N-1:
+            percentComplete = (int((i/N)*10000))/100
+            print('\rProgress: {}%   '.format(percentComplete),end='')
+            for t in range(len(self.temps)):
+                #New location to test
+                testVals = []
+                for p in range(len(self.params)):
+                    if self.boundsSet:
+                        temp = params[i,p,t] + np.random.normal(0,jump_scale[p])
+                        #If not within range set by boundaries
+                        while temp < self.bounds[p,0] or temp > self.bounds[p,1]:
+                            temp = params[i,p,t] + np.random.normal(0,jump_scale[p])
+                        testVals.append(temp)
+                    else:
+                        testVals.append(params[i,p,t] + np.random.normal(0,jump_scale[p]))
+
+                #Calculate likelyhood
+                newlikely = -1*((-1*self.likeFunc(self.data,testVals))**(1/self.temps[t]))
+
+                if self.logLike:
+                    #Loglikelyhood Function
+                    logH = newlikely-likelyhoods[i,t]
+                    if logH>=np.log(np.random.uniform(0,1)):
+                        acceptance[t]+=1
+                        params[i+1,:,t] = testVals
+                        likelyhoods[i+1,t] = newlikely
+                    else:
+                        params[i+1,:,t] = params[i,:,t]
+                        likelyhoods[i+1,t] = likelyhoods[i,t]
+
+                else:
+                    #Regular Likelyhood
+                    h = newLikelyhood/likelyhood[i]
+                    if h>=np.random.random():
+                        acceptance[t]+=1
+                        params[i+1,:,t] = testVals
+                        likelyhoods[i+1,t] = newlikely
+                    else:
+                        params[i+1,:,t] = params[i,:,t]
+                        likelyhoods[i+1,t] = likelyhoods[i,t]
+
+
+
+            if i%10==0 and i!=0:
+                pass
+                #_swapProposal()
+            i+=1
+
+        print("\rDone              ")
+        self.jumpScale = jump_scale
+        self.paramChains = params
+        self.likelyhoods = likelyhoods
+        self.acceptance = (acceptance/N)*100
+
+
+
+
+
 
 #Auxiliary functions------------------------------------------------------------
     def _refine_jump_scale(self,percent,jump):
-        if(percent < .30):
-            if percent <.20:
+        if(percent < .55):
+            if percent <.30:
                 #Need big shifts
                 for i in range(0,len(jump)):
                     jump[i] *= (1/np.random.uniform(1,20))
-                print("\rJump scales are too big, changing them to: {}".format(jump), end='')
+                print("\rJump scales are too large, changing them to: {}".format(jump), end='')
                 return True
 
             else:
@@ -135,8 +233,8 @@ class mcmc:
                 print("\rJump scales are too large, changing them to: {}".format(jump), end='')
                 return True
 
-        elif(percent > .75):
-            if percent > .85:
+        elif(percent > .85):
+            if percent > .95:
                 #Need big shifts
                 for i in range(0,len(jump)):
                     jump[i] *= np.random.uniform(1,20)
@@ -150,22 +248,41 @@ class mcmc:
                 print("\rJump scales are too small, changing them to: {}".format(jump), end='')
                 return True
         else:
-            print("\rJump scales have been finalized: {}            ".format(jump), end='\n')
+            print("\rJump scales have been finalized: {}               ".format(jump), end='\n')
             return False
 
 
-    def _swapProposal(param_val_list):
+    def _swapProposal(self,param_val_list):
         pass
 
 
 #Visualizing--------------------------------------------------------------------
-    def showChains(self):
+    '''
+    '''
+    def showChains(self,chain_number=None):
         try:
-            chains = np.swapaxes(self.paramChains,0,1)
-            for i in range(0,len(self.params)):
-                plt.plot(chains[i])
-                plt.title(self.params[i])
-                plt.show()
+            if self.pt:
+                if chain_number==None:
+                    #Show all
+                    for par in range(0,len(self.params)):
+                        chains = self.paramChains[:,par,:]
+                        for i in range(len(self.temps)):
+                            plt.plot(chains[:,i])
+                        plt.title(self.params[par])
+                        plt.show()
+
+                else:
+                    for par in range(0,len(self.params)):
+                        chains = self.paramChains[:,par,chain_number]
+                        plt.plot(chains)
+                        plt.title(self.params[i])
+                        plt.show()
+            else:
+                chains = np.swapaxes(self.paramChains,0,1)
+                for i in range(0,len(self.params)):
+                    plt.plot(chains[i])
+                    plt.title(self.params[i])
+                    plt.show()
         except:
             print("No chains found. Did you run \"start()\"?")
             return None
