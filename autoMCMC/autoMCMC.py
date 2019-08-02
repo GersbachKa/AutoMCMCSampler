@@ -12,6 +12,13 @@ class mcmc:
         self.jumpSet = False
         self.boundsSet = False
         self.tempSet = False
+        self.data = None
+        self.likeFunc = None
+        self.params = None
+        self.logLike = True
+        self.jumpScale = None
+        self.bounds = None
+        self.temps = None
 
     def setLikelyhoodFunction(self,function,param_list,logLikely=True):
         self.likeFunc = function
@@ -147,14 +154,18 @@ class mcmc:
 
         #Calculate likelyhood with params
         for t in range(len(self.temps)):
-            likelyhoods[0,t] = -1*(-self.likeFunc(self.data,params[0,:,t]))**(1/self.temps[t])
+            likeRet = self.likeFunc(self.data,params[0,:,t])
+            if likeRet < 0:
+                likelyhoods[0,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+            else:
+                likelyhoods[0,t] = (likeRet)**(1/self.temps[t])
 
         if not self.jumpSet:
             jump_scale = np.random.random(len(self.params))
             self._mcmc(302) #Already implemented in code for Single chain.
             jump_scale = self.jumpScale
         else:
-            jump_scale = self.scale
+            jump_scale = self.jumpScale
 
         i = 0
         while i < N-1:
@@ -174,7 +185,12 @@ class mcmc:
                         testVals.append(params[i,p,t] + np.random.normal(0,jump_scale[p]))
 
                 #Calculate likelyhood
-                newlikely = -1*((-1*self.likeFunc(self.data,testVals))**(1/self.temps[t]))
+                likeRet = self.likeFunc(self.data,testVals)
+                newlikely = None
+                if likeRet < 0:
+                    newlikely = -1*((-1*likeRet)**(1/self.temps[t]))
+                else:
+                    newlikely = ((likeRet)**(1/self.temps[t]))
 
                 if self.logLike:
                     #Loglikelyhood Function
@@ -189,7 +205,7 @@ class mcmc:
 
                 else:
                     #Regular Likelyhood
-                    h = newLikelyhood/likelyhood[i]
+                    h = newlikely/likelyhoods[i,t]
                     if h>=np.random.random():
                         acceptance[t]+=1
                         params[i+1,:,t] = testVals
@@ -201,11 +217,43 @@ class mcmc:
 
 
             if i%10==0 and i!=0:
-                pass
-                #_swapProposal()
+                #Chain swapping
+                for t in range(len(self.temps)-1):
+                    chain1Par = params[i,:,t]
+                    chain2Par = params[i,:,t+1]
+
+                    swapTop = ((abs(self.likeFunc(self.data,chain2Par))**(1/self.temps[t]))
+                              *(abs(self.likeFunc(self.data,chain1Par))**(1/self.temps[t+1])))
+
+                    swapBot = ((abs(self.likeFunc(self.data,chain1Par))**(1/self.temps[t]))
+                              *(abs(self.likeFunc(self.data,chain2Par))**(1/self.temps[t+1])))
+
+                    swapH = swapTop/swapBot
+
+                    if swapH >= np.random.random():
+                        #swap parameters
+                        params[i,:,t] = chain2Par
+                        params[i,:,t+1] = chain1Par
+
+                        #swap likelyhoods
+                        likeRet = self.likeFunc(self.data,chain2Par)
+                        if likeRet < 0:
+                            likelyhoods[i,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+                        else:
+                            likelyhoods[i,t] = ((likeRet)**(1/self.temps[t]))
+
+                        likeRet = self.likeFunc(self.data,chain1Par)
+                        if likeRet < 0:
+                            likelyhoods[i,t+1] = -1*((-1*likeRet)**(1/self.temps[t+1]))
+                        else:
+                            likelyhoods[i,t+1] = ((likeRet)**(1/self.temps[t+1]))
+
+                        swapCount+=1
+
             i+=1
 
         print("\rDone              ")
+        self.swapCount = swapCount
         self.jumpScale = jump_scale
         self.paramChains = params
         self.likelyhoods = likelyhoods
@@ -222,14 +270,14 @@ class mcmc:
             if percent <.30:
                 #Need big shifts
                 for i in range(0,len(jump)):
-                    jump[i] *= (1/np.random.uniform(1,20))
+                    jump[i] *= (1/np.random.uniform(1,5))
                 print("\rJump scales are too large, changing them to: {}".format(jump), end='')
                 return True
 
             else:
                 #Need smaller shifts
                 for i in range(0,len(jump)):
-                    jump[i] *= (1/np.random.uniform(1,10))
+                    jump[i] *= (1/np.random.uniform(1,2))
                 print("\rJump scales are too large, changing them to: {}".format(jump), end='')
                 return True
 
@@ -237,14 +285,14 @@ class mcmc:
             if percent > .95:
                 #Need big shifts
                 for i in range(0,len(jump)):
-                    jump[i] *= np.random.uniform(1,20)
+                    jump[i] *= np.random.uniform(1,5)
                 print("\rJump scales are too small, changing them to: {}".format(jump), end='')
                 return True
 
             else:
                 #Need smaller shifts
                 for i in range(0,len(jump)):
-                    jump[i] *= np.random.uniform(1,10)
+                    jump[i] *= np.random.uniform(1,2)
                 print("\rJump scales are too small, changing them to: {}".format(jump), end='')
                 return True
         else:
@@ -252,14 +300,11 @@ class mcmc:
             return False
 
 
-    def _swapProposal(self,param_val_list):
-        pass
-
-
 #Visualizing--------------------------------------------------------------------
     '''
+    If chain_number == None, then show all Chains
     '''
-    def showChains(self,chain_number=None):
+    def showChains(self,chain_number=0):
         try:
             if self.pt:
                 if chain_number==None:
@@ -275,7 +320,7 @@ class mcmc:
                     for par in range(0,len(self.params)):
                         chains = self.paramChains[:,par,chain_number]
                         plt.plot(chains)
-                        plt.title(self.params[i])
+                        plt.title(self.params[par])
                         plt.show()
             else:
                 chains = np.swapaxes(self.paramChains,0,1)
