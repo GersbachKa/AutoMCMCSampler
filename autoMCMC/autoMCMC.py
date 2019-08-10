@@ -155,10 +155,13 @@ class mcmc:
         #Calculate likelyhood with params
         for t in range(len(self.temps)):
             likeRet = self.likeFunc(self.data,params[0,:,t])
-            if likeRet < 0:
-                likelyhoods[0,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+            if self.logLike:
+                likelyhoods[0,t] = (likeRet)*(1/self.temps[t])
             else:
-                likelyhoods[0,t] = (likeRet)**(1/self.temps[t])
+                if likeRet < 0:
+                    likelyhoods[0,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+                else:
+                    likelyhoods[0,t] = (likeRet)**(1/self.temps[t])
 
         if not self.jumpSet:
             jump_scale = np.random.random(len(self.params))
@@ -187,10 +190,13 @@ class mcmc:
                 #Calculate likelyhood
                 likeRet = self.likeFunc(self.data,testVals)
                 newlikely = None
-                if likeRet < 0:
-                    newlikely = -1*((-1*likeRet)**(1/self.temps[t]))
+                if self.logLike:
+                    newlikely = (likeRet)*(1/self.temps[t])
                 else:
-                    newlikely = ((likeRet)**(1/self.temps[t]))
+                    if likeRet < 0:
+                        newlikely = -1*((-1*likeRet)**(1/self.temps[t]))
+                    else:
+                        newlikely = ((likeRet)**(1/self.temps[t]))
 
                 if self.logLike:
                     #Loglikelyhood Function
@@ -237,10 +243,13 @@ class mcmc:
 
                         #swap likelyhoods
                         likeRet = self.likeFunc(self.data,chain2Par)
-                        if likeRet < 0:
-                            likelyhoods[i,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+                        if self.logLike:
+                            likelyhoods[i,t] = (likeRet)*(1/self.temps[t])
                         else:
-                            likelyhoods[i,t] = ((likeRet)**(1/self.temps[t]))
+                            if likeRet < 0:
+                                likelyhoods[i,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+                            else:
+                                likelyhoods[i,t] = ((likeRet)**(1/self.temps[t]))
 
                         likeRet = self.likeFunc(self.data,chain1Par)
                         if likeRet < 0:
@@ -334,7 +343,11 @@ class mcmc:
 
     def showHistograms(self,bins=100,burn=.25):
         try:
-            chains = np.swapaxes(self.paramChains,0,1)
+            if self.pt:
+                chains = np.swapaxes(self.paramChains[:,:,0],0,1)
+            else:
+                chains = np.swapaxes(self.paramChains,0,1)
+
             for i in range(0,len(self.params)):
                 plt.hist(chains[i][int(len(chains[i])*burn):],bins=100)
                 plt.title(self.params[i])
