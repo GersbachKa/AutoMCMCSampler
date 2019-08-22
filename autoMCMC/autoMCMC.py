@@ -9,6 +9,11 @@ class mcmc:
 #Setup Functions----------------------------------------------------------------
 
     def __init__(self):
+        """Initiallizes a Markov-Chain Monte Carlo object.
+        In order to use this object, call setLikelihoodFunction() and optionally
+        call setDataset(),setJumpscale(),setBoundaries(),setTemperatures(), then
+        call start().
+        """
         self.jumpSet = False
         self.boundsSet = False
         self.tempSet = False
@@ -20,27 +25,60 @@ class mcmc:
         self.bounds = None
         self.temps = None
 
-    def setLikelyhoodFunction(self,function,param_list,logLikely=True):
+    def setLikelihoodFunction(self,function,param_list,logLikely=True):
+        """Sets the function used in the MCMC sampler.
+        In order for this to work, you need the likelihood function to accept two
+        parameters: dataset which is a list of datapoints, and parameterList
+        which is a list of parameter values in the same order as the next input,
+        param_list is a list of parameter names, all of which are strings. The
+        logLikely boolean is for specifying if the likelihood function is in log
+        scale or linear scale.
+        """
         self.likeFunc = function
         self.params = param_list
         self.logLike = logLikely
 
     def setDataset(self,data):
+        """Sets the dataset used for the MCMC function.
+        This is not a required function if your likelihood function does not use it.
+        """
         self.data = data
 
     def setJumpscale(self,scales):
+        """Sets the scale of the random draws of a gaussian that are used in chosing
+        the next location.
+        scales needs to be a list of floats or doubles which has the same length
+        as the amount of variables used in setLikelihoodFunction(). Scale[i]
+        corresponds to the jump scale for param_list[i]
+        """
         self.jumpSet = True
         self.jumpScale = scales
 
     def setBoundaries(self,paramBoundaries):
+        """An optional function which sets the boundaries of each parameters.
+        paramBoundaries needs to be a list of touples of floats or doubles. The
+        first in the touple represents the lower bound and the second represents
+        the upper bound. paramBoundaries[i] corresponds to the boundaries for
+        param_list[i]
+        """
         self.bounds = paramBoundaries
         self.boundsSet = True
 
     def setTemperatures(self,temp_list):
+        """A function used to set the temperatures of each chain in a parallel
+        tempering MCMC chain.
+        temp_list is a list of floats or doubles which corresponds to the temperature
+        of each chain. The first value MUST be 1. Closer chains swap more
+        """
         self.tempSet = True
         self.temps = temp_list
 
     def start(self,iterations,parallel_tempering=False):
+        """A function used to start the MCMC algorithm.
+        iterations represent how many iterations the MCMC function must go through
+        before stopping and returning. Use parallel_tempering=True if you plan to
+        use parallel tempering
+        """
         self.pt = parallel_tempering
         if not parallel_tempering:
             self._mcmc(iterations)
@@ -50,7 +88,7 @@ class mcmc:
 #Regular mcmc--------------------------------------------------------------------
     def _mcmc(self,N):
         param = [] #[iteration][param][temp]
-        likelyhood = []
+        likelihood = []
         accept = 0
 
         #Generate random starting points
@@ -71,8 +109,8 @@ class mcmc:
             jump_scale = self.jumpScale
 
 
-        #Calculate likelyhood with params
-        likelyhood.append(self.likeFunc(self.data,param[0]))
+        #Calculate likelihood with params
+        likelihood.append(self.likeFunc(self.data,param[0]))
 
         i = 0
         while i<N-1:
@@ -88,7 +126,7 @@ class mcmc:
                     i=0
                     accept=0
                     param = [param[0]]
-                    likelyhood = [likelyhood[0]]
+                    likelihood = [likelihood[0]]
 
             #MCMC Part-------------------------------------
             #Get new value
@@ -103,41 +141,41 @@ class mcmc:
 
                 testParams.append(next)
 
-            #Calc likelyhood
-            newLikelyhood = self.likeFunc(self.data,testParams)
+            #Calc likelihood
+            newlikelihood = self.likeFunc(self.data,testParams)
             if self.logLike:
-                #Loglikelyhood Function
-                logH = newLikelyhood-likelyhood[i]
+                #Loglikelihood Function
+                logH = newlikelihood-likelihood[i]
                 if(logH>=np.log(np.random.uniform(0,1))):
                     accept+=1
                     param.append(testParams)
-                    likelyhood.append(newLikelyhood)
+                    likelihood.append(newlikelihood)
                 else:
                     param.append(param[i])
-                    likelyhood.append(likelyhood[i])
+                    likelihood.append(likelihood[i])
 
             else:
-                #Regular Likelyhood
-                h = newLikelyhood/likelyhood[i]
+                #Regular likelihood
+                h = newlikelihood/likelihood[i]
                 if(h>=np.random.random()):
                     accept+=1
                     param.append(testParams)
-                    likelyhood.append(newLikelyhood)
+                    likelihood.append(newlikelihood)
                 else:
                     param.append(param[i])
-                    likelyhood.append(likelyhood[i])
+                    likelihood.append(likelihood[i])
             i+=1
 
         print("\rDone              ")
         self.jumpScale = jump_scale
         self.paramChains = param
-        self.likelyhoods = likelyhood
+        self.likelihoods = likelihood
         self.acceptance = (accept/N)*100
 
 #PTMCMC-------------------------------------------------------------------------
     def _ptmcmc(self,N):
         params = np.zeros((N,len(self.params),len(self.temps))) #[iteration,parameter,temp]
-        likelyhoods = np.zeros((N,len(self.temps))) #[iteration,temp]
+        likelihoods = np.zeros((N,len(self.temps))) #[iteration,temp]
         jump_scale = []
         acceptance = np.zeros(len(self.temps)) #[temp]
         swapCount = 0
@@ -152,16 +190,16 @@ class mcmc:
                                                   self.bounds[par,1],
                                                   len(self.temps))
 
-        #Calculate likelyhood with params
+        #Calculate likelihood with params
         for t in range(len(self.temps)):
             likeRet = self.likeFunc(self.data,params[0,:,t])
             if self.logLike:
-                likelyhoods[0,t] = (likeRet)*(1/self.temps[t])
+                likelihoods[0,t] = (likeRet)*(1/self.temps[t])
             else:
                 if likeRet < 0:
-                    likelyhoods[0,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+                    likelihoods[0,t] = -1*((-1*likeRet)**(1/self.temps[t]))
                 else:
-                    likelyhoods[0,t] = (likeRet)**(1/self.temps[t])
+                    likelihoods[0,t] = (likeRet)**(1/self.temps[t])
 
         if not self.jumpSet:
             jump_scale = np.random.random(len(self.params))
@@ -187,7 +225,7 @@ class mcmc:
                     else:
                         testVals.append(params[i,p,t] + np.random.normal(0,jump_scale[p]))
 
-                #Calculate likelyhood
+                #Calculate likelihood
                 likeRet = self.likeFunc(self.data,testVals)
                 newlikely = None
                 if self.logLike:
@@ -199,26 +237,26 @@ class mcmc:
                         newlikely = ((likeRet)**(1/self.temps[t]))
 
                 if self.logLike:
-                    #Loglikelyhood Function
-                    logH = newlikely-likelyhoods[i,t]
+                    #Loglikelihood Function
+                    logH = newlikely-likelihoods[i,t]
                     if logH>=np.log(np.random.uniform(0,1)):
                         acceptance[t]+=1
                         params[i+1,:,t] = testVals
-                        likelyhoods[i+1,t] = newlikely
+                        likelihoods[i+1,t] = newlikely
                     else:
                         params[i+1,:,t] = params[i,:,t]
-                        likelyhoods[i+1,t] = likelyhoods[i,t]
+                        likelihoods[i+1,t] = likelihoods[i,t]
 
                 else:
-                    #Regular Likelyhood
-                    h = newlikely/likelyhoods[i,t]
+                    #Regular likelihood
+                    h = newlikely/likelihoods[i,t]
                     if h>=np.random.random():
                         acceptance[t]+=1
                         params[i+1,:,t] = testVals
-                        likelyhoods[i+1,t] = newlikely
+                        likelihoods[i+1,t] = newlikely
                     else:
                         params[i+1,:,t] = params[i,:,t]
-                        likelyhoods[i+1,t] = likelyhoods[i,t]
+                        likelihoods[i+1,t] = likelihoods[i,t]
 
 
 
@@ -241,21 +279,21 @@ class mcmc:
                         params[i,:,t] = chain2Par
                         params[i,:,t+1] = chain1Par
 
-                        #swap likelyhoods
+                        #swap likelihoods
                         likeRet = self.likeFunc(self.data,chain2Par)
                         if self.logLike:
-                            likelyhoods[i,t] = (likeRet)*(1/self.temps[t])
+                            likelihoods[i,t] = (likeRet)*(1/self.temps[t])
                         else:
                             if likeRet < 0:
-                                likelyhoods[i,t] = -1*((-1*likeRet)**(1/self.temps[t]))
+                                likelihoods[i,t] = -1*((-1*likeRet)**(1/self.temps[t]))
                             else:
-                                likelyhoods[i,t] = ((likeRet)**(1/self.temps[t]))
+                                likelihoods[i,t] = ((likeRet)**(1/self.temps[t]))
 
                         likeRet = self.likeFunc(self.data,chain1Par)
                         if likeRet < 0:
-                            likelyhoods[i,t+1] = -1*((-1*likeRet)**(1/self.temps[t+1]))
+                            likelihoods[i,t+1] = -1*((-1*likeRet)**(1/self.temps[t+1]))
                         else:
-                            likelyhoods[i,t+1] = ((likeRet)**(1/self.temps[t+1]))
+                            likelihoods[i,t+1] = ((likeRet)**(1/self.temps[t+1]))
 
                         swapCount+=1
 
@@ -265,7 +303,7 @@ class mcmc:
         self.swapCount = swapCount
         self.jumpScale = jump_scale
         self.paramChains = params
-        self.likelyhoods = likelyhoods
+        self.likelihoods = likelihoods
         self.acceptance = (acceptance/N)*100
 
 
@@ -356,10 +394,10 @@ class mcmc:
             print("No chains found. Did you run \"start()\"?")
             return None
 
-    def showLikelyhoods(self):
+    def showlikelihoods(self):
         try:
-            plt.plot(self.likelyhoods)
-            plt.title("Likelyhoods")
+            plt.plot(self.likelihoods)
+            plt.title("likelihoods")
             plt.show()
         except:
             print("No chains found. Did you run \"start()\"?")
